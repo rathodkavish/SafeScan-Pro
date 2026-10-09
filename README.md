@@ -1,6 +1,4 @@
-## SafeScan-Pro Showcase
 
-![SafeScan-Pro Dashboard, Mobile App, Reports and Architecture](<SafeScan-Pro Security Dashboard Showcase(1).png>)
 
 <div align="center">
 

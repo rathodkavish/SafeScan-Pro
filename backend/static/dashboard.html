@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SafeScan Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body { background:#f4f6f9; }
+.badge-safe { background:#198754; }
+.badge-danger { background:#dc3545; }
+.badge-suspicious { background:#fd7e14; }
+pre { background:#111; color:#0f0; padding:10px; border-radius:6px; }
+</style>
+</head>
+
+<body>
+<div class="container mt-4">
+
+<h2 class="text-center mb-4">🛡 SafeScan QR & URL Detector</h2>
+
+<!-- URL Scan -->
+<div class="card p-3 mb-3">
+<h5>Scan URL</h5>
+<input id="urlInput" class="form-control" placeholder="Enter URL">
+<button class="btn btn-primary mt-2" onclick="scanURL()">Scan URL</button>
+</div>
+
+<!-- QR Scan -->
+<div class="card p-3 mb-3">
+<h5>Scan QR Image</h5>
+<input type="file" id="qrFile" class="form-control">
+<button class="btn btn-success mt-2" onclick="scanQR()">Scan QR</button>
+</div>
+
+<!-- Result -->
+<div class="card p-3 mb-3">
+<h5>Scan Result</h5>
+
+<div id="verdictBadge" class="mb-2"></div>
+
+<div class="progress mt-2" style="height:25px;">
+  <div id="riskBar" class="progress-bar" style="width:0%">0%</div>
+</div>
+
+<pre id="resultBox" class="mt-3">No scan yet</pre>
+</div>
+
+<!-- Explanation -->
+<div class="card p-3 mb-3">
+<h5>Fake QR / URL Explanation</h5>
+<div id="explanationBox">No analysis yet.</div>
+</div>
+
+<!-- History -->
+<div class="card p-3 mb-3">
+<h5>Scan History</h5>
+<button class="btn btn-secondary mb-2" onclick="loadHistory()">Refresh</button>
+<table class="table table-bordered table-sm">
+<thead class="table-dark">
+<tr>
+<th>Type</th>
+<th>URL</th>
+<th>Verdict</th>
+<th>Risk</th>
+<th>Time</th>
+</tr>
+</thead>
+<tbody id="historyTable"></tbody>
+</table>
+</div>
+
+<!-- Chart -->
+<div class="card p-3 mb-3">
+<h5>Risk Score Chart (%)</h5>
+<canvas id="riskChart"></canvas>
+</div>
+
+</div>
+
+<script>
+const API = "http://127.0.0.1:5000";
+let chart;
+
+function scanURL() {
+  const url = document.getElementById("urlInput").value;
+  fetch(API+"/api/scan-url",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({url})
+  }).then(r=>r.json()).then(showResult);
+}
+
+function scanQR() {
+  const file = document.getElementById("qrFile").files[0];
+  const fd = new FormData();
+  fd.append("qr_image",file);
+
+  fetch(API+"/api/scan-qr",{method:"POST",body:fd})
+  .then(r=>r.json()).then(showResult);
+}
+
+function showResult(data){
+  document.getElementById("resultBox").textContent = JSON.stringify(data,null,2);
+
+  const risk = data.risk_score;
+  const verdict = data.verdict;
+
+  const bar = document.getElementById("riskBar");
+  bar.style.width = risk+"%";
+  bar.textContent = risk+"%";
+  bar.className = "progress-bar";
+
+  if(verdict==="SAFE") bar.classList.add("bg-success");
+  else if(verdict==="SUSPICIOUS") bar.classList.add("bg-warning");
+  else bar.classList.add("bg-danger");
+
+  let badgeColor="badge-safe";
+  if(verdict==="SUSPICIOUS") badgeColor="badge-suspicious";
+  if(verdict==="DANGEROUS") badgeColor="badge-danger";
+
+  document.getElementById("verdictBadge").innerHTML =
+    `<span class="badge ${badgeColor} fs-6">Verdict: ${verdict}</span>`;
+
+  generateExplanation(data);
+  loadHistory();
+}
+
+function generateExplanation(data){
+  let reasons=[];
+  const a = data.analysis || {};
+
+  if(a.ml && a.ml.is_phishing) reasons.push("ML model detected phishing patterns.");
+  if(a.virustotal && a.virustotal.risk_percentage>5) reasons.push("VirusTotal engines flagged this URL.");
+  if(a.google_safe_browsing && !a.google_safe_browsing.is_safe) reasons.push("Google Safe Browsing detected malware.");
+  if(a.domain && a.domain.is_new) reasons.push("Domain was registered recently.");
+  if(a.page_content && a.page_content.content_risk === "HIGH") reasons.push("Page content shows high-risk indicators.");
+  if(data.sandbox_report && data.sandbox_report.malware_score >= 50) reasons.push("Sandbox detected malware behavior.");
+
+  if(reasons.length===0){
+    document.getElementById("explanationBox").innerHTML="✅ No malicious indicators detected.";
+  }else{
+    document.getElementById("explanationBox").innerHTML =
+      "<b>⚠ Detected reasons:</b><ul>"+reasons.map(r=>`<li>${r}</li>`).join("")+"</ul>";
+  }
+}
+
+function loadHistory(){
+  fetch(API+"/api/history")
+  .then(r=>r.json())
+  .then(data=>{
+    const table=document.getElementById("historyTable");
+    table.innerHTML="";
+    const risks=[];
+
+    data.history.forEach(row=>{
+      const tr=document.createElement("tr");
+      tr.innerHTML=`
+      <td>${row.type}</td>
+      <td>${row.data.url}</td>
+      <td>${row.data.verdict}</td>
+      <td>${row.data.risk_score}%</td>
+      <td>${row.data.time}</td>`;
+      table.appendChild(tr);
+      risks.push(row.data.risk_score);
+    });
+
+    drawChart(risks);
+  });
+}
+
+function drawChart(risks){
+  const ctx=document.getElementById("riskChart");
+
+  if(chart) chart.destroy();
+
+  const maxRisk = Math.max(...risks, 0);
+
+// SMART AUTO SCALE (keep threshold visible)
+let yMax;
+if(maxRisk < 10) yMax = 80;
+else if(maxRisk < 70) yMax = 80;
+else yMax = 100;
+
+  chart = new Chart(ctx,{
+    type:"line",
+    data:{
+      labels: risks.map((_,i)=>"Scan "+(i+1)),
+      datasets:[
+        {
+          label:"Risk Score (%)",
+          data: risks,
+          borderColor:"#dc3545",
+          backgroundColor:"rgba(220,53,69,0.25)",
+          tension:0.4,
+          fill:true,
+          pointRadius:6,
+          pointBackgroundColor: risks.map(r =>
+            r >= 70 ? "#dc3545" :
+            r >= 30 ? "#fd7e14" :
+            "#198754"
+          )
+        },
+        {
+          label:"Danger Threshold (70%)",
+          data: new Array(risks.length).fill(70),
+          borderColor:"#fd7e14",
+          borderDash:[8,6],
+          pointRadius:0
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        tooltip:{
+          callbacks:{
+            label:(ctx)=>"Risk: "+ctx.parsed.y+"%"
+          }
+        }
+      },
+      scales:{
+        y:{
+          beginAtZero:true,
+          max: yMax,
+          title:{
+            display:true,
+            text:"Risk Percentage (%)"
+          }
+        }
+      }
+    }
+  });
+}
+</script>
+
+</body>
+</html>

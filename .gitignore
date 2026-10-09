@@ -1,0 +1,118 @@
+# ══════════════════════════════════════════════════════════
+#  SafeScan-Pro .gitignore
+#  Prevents sensitive data from being uploaded to GitHub
+# ══════════════════════════════════════════════════════════
+
+# ── Secrets & Credentials (NEVER upload these) ───────────
+backend/.env
+*.pem
+*.key
+sandbox-key.pem
+
+# ── Python ────────────────────────────────────────────────
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Node.js / Expo ────────────────────────────────────────
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile-backup/
+
+# ── IDE & System Files ────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ── Uploaded QR images (generated at runtime) ────────────
+backend/uploads/*.png
+backend/uploads/*.jpg
+backend/uploads/*.jpeg
+
+# ── Local database fallback (generated at runtime) ───────
+backend/data/
+
+# ── Reports generated at runtime ─────────────────────────
+backend/reports/*.pdf
+
+# ── Git inside subdirectories ────────────────────────────
+mobile/.git/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*credentials*
+**/*secrets*
+**/*token*
+
+# Python environments and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Dependencies and local configuration
+node_modules/
+.expo/
+.vscode/
+.idea/
+
+# Local logs and runtime data
+*.log
+
+# Allow safe environment templates
+!**/.env.example
+
+
+# Local reports; publish only after reviewing for sensitive data
+/report.pdf
+/reports/
+
+# Temporary exclusions pending content and redistribution review
+/Documentation/
+/QR Code/
+/backend/test_qr_codes/
+/backend/phishing_dataset.csv
+
+# Generated web build output
+/backend/webui/_expo/
+
+# Local reports
+/report.pdf
+/reports/
+
+
+# Mobile app: nested repository metadata and generated files
+/mobile/.git/
+/mobile/node_modules/
+/mobile/.expo/
+/mobile/dist/
+/mobile/.vscode/
+
+
+# Clean public copy of the mobile app
+/mobile-public/node_modules/
+/mobile-public/.expo/
+/mobile-public/dist/
+/mobile-public/.vscode/
+
+
+# Original mobile folder; publishing the clean mobile-public copy instead
+/mobile/
+

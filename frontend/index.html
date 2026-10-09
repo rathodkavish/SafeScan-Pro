@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SafeScan QR Detector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+
+  <style>
+    body { background: #f6f8fb; }
+    .card { border-radius: 12px; }
+    .badge-safe { background: #28a745; }
+    .badge-danger { background: #dc3545; }
+    .badge-suspicious { background: #ffc107; color: #000; }
+    pre { background: #111; color: #0f0; padding: 10px; border-radius: 8px; }
+    .sandbox-box { background: #f3f0ff; border-left: 4px solid #6f42c1; padding: 10px; margin-top: 10px; }
+  </style>
+</head>
+
+<body>
+<div class="container py-4">
+
+  <h2 class="mb-4">🛡 SafeScan – QR & URL Phishing Detector</h2>
+
+  <div class="row g-4">
+    <div class="col-md-6">
+      <div class="card p-3">
+        <h5>Scan URL</h5>
+        <input id="urlInput" class="form-control mb-2" placeholder="https://example.com" />
+        <button class="btn btn-primary" onclick="scanURL()">Scan URL</button>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card p-3">
+        <h5>Scan QR Image</h5>
+        <input id="qrFile" type="file" class="form-control mb-2" accept="image/*" />
+        <button class="btn btn-primary" onclick="scanQR()">Scan QR</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-3 mt-4">
+    <h5>Scan Result</h5>
+    <div id="resultArea">No scan yet.</div>
+  </div>
+
+<div class="card p-3 mt-4">
+    <h5>🛡 Threat Database Statistics</h5>
+    <button class="btn btn-info mb-2 text-white" onclick="loadThreatStats()">Refresh Stats</button>
+    <div id="threatStatsArea" class="row g-3">
+      <p class="text-muted">Loading threat stats...</p>
+    </div>
+  </div>
+
+  <div class="card p-3 mt-4">
+    <h5>Scan History</h5>
+    <button class="btn btn-secondary mb-2" onclick="loadHistory()">Refresh History</button>
+    <div class="table-responsive">
+      <table class="table table-bordered">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>URL</th>
+            <th>Verdict</th>
+            <th>Risk %</th>
+            <th>Blocked</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="historyTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = "http://127.0.0.1:5000";
+
+
+function verdictBadge(v) {
+  if (v === "SAFE") return `<span class='badge badge-safe'>SAFE</span>`;
+  if (v === "DANGEROUS") return `<span class='badge badge-danger'>DANGEROUS</span>`;
+  return `<span class='badge badge-suspicious'>SUSPICIOUS</span>`;
+}
+
+async function scanURL() {
+  const url = document.getElementById("urlInput").value;
+  if (!url) return alert("Enter URL");
+
+  const res = await fetch(`${API}/api/scan-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url })
+  });
+
+  const data = await res.json();
+  showResult(data);
+  loadHistory();
+  loadThreatStats();
+}
+
+async function scanQR() {
+  const file = document.getElementById("qrFile").files[0];
+  if (!file) return alert("Select image");
+
+  const fd = new FormData();
+  fd.append("qr_image", file);
+
+  const res = await fetch(`${API}/api/scan-qr`, { method: "POST", body: fd });
+  const data = await res.json();
+  showResult(data);
+  loadHistory();
+  loadThreatStats();
+}
+
+function showResult(data) {
+  let sandboxHTML = "";
+  let threatHTML  = "";
+  let preventHTML = "";
+
+  if (data.sandbox_required === true) {
+    const s = data.sandbox_report || {
+      malware_score: 0,
+      js_executed: null,
+      downloads: [],
+      redirects: [],
+      dns_ips: [],
+      connections: []
+    };
+
+    sandboxHTML = `
+      <div class="sandbox-box">
+        <h6>🧪 Sandbox Analysis</h6>
+        <b>Sandbox Required:</b> Yes<br>
+        <b>Malware Score:</b> ${s.malware_score}%<br>
+        <b>JavaScript Executed:</b> ${
+          s.js_executed === null ? "Unknown" : s.js_executed ? "Yes" : "No"
+        }<br>
+        <b>Downloads:</b> ${s.downloads.length}<br>
+        <b>Redirects:</b> ${s.redirects.length}<br>
+        <b>DNS IPs:</b> ${s.dns_ips.length ? s.dns_ips.join(", ") : "None"}<br>
+        <b>Connections:</b><br>
+        <small>${s.connections.length ? s.connections.join("<br>") : "None"}</small>
+      </div>
+    `;
+  }
+
+  if (data.from_threat_db) {
+    threatHTML = `
+      <div class="alert alert-danger mt-2">
+        <strong>🛡 Known Threat — Database Match</strong><br>
+        Scanned ${data.scan_count || 0} times, blocked ${data.blocked_count || 0} times.
+      </div>
+    `;
+  }
+
+  if (data.prevention && data.prevention.action !== "ALLOW") {
+    preventHTML = `
+      <div class="alert alert-warning mt-2">
+        <strong>${data.prevention.icon || "🛡"} Action Prevented</strong><br>
+        ${data.prevention.message || "SafeScan blocked this QR's action."}
+      </div>
+    `;
+  }
+
+  document.getElementById("resultArea").innerHTML = `
+    <b>Target:</b> ${data.url || data.qr_data}<br>
+    <b>Verdict:</b> ${verdictBadge(data.verdict)}
+    ${data.blocked ? ' <span class="badge bg-dark">🛡 BLOCKED</span>' : ''}<br>
+    <b>Risk Score:</b> ${data.risk_score}%<br>
+    <b>Domain Age:</b> ${data.analysis?.domain?.age_days ?? "N/A"} days
+    ${threatHTML}
+    ${preventHTML}
+    <pre>${JSON.stringify(data.analysis, null, 2)}</pre>
+    ${sandboxHTML}
+  `;
+}
+
+async function loadHistory() {
+  const res = await fetch(`${API}/api/history`);
+  const data = await res.json();
+
+  const tbody = document.getElementById("historyTable");
+  tbody.innerHTML = "";
+
+  data.history.forEach(row => {
+    const r = row.data;
+    const blocked = r.blocked || r.from_threat_db ? '<span class="badge bg-dark">🛡 YES</span>' : 'NO';
+    tbody.innerHTML += `
+      <tr>
+        <td>${row.type}</td>
+        <td>${r.url || r.qr_data || ""}</td>
+        <td>${verdictBadge(r.verdict)}</td>
+        <td>${r.risk_score}</td>
+        <td>${blocked}</td>
+        <td>${r.time}</td>
+      </tr>`;
+  });
+}
+
+async function loadThreatStats() {
+  try {
+    const res = await fetch(`${API}/api/threat-stats`);
+    const s = await res.json();
+    const area = document.getElementById("threatStatsArea");
+
+    const typeBreakdown = Object.entries(s.threats_by_type || {})
+      .map(([type, count]) => `<span class="badge bg-secondary me-1">${type}: ${count}</span>`)
+      .join("") || '<span class="text-muted">None yet</span>';
+
+    area.innerHTML = `
+      <div class="col-md-4">
+        <div class="card text-center p-3 border-primary">
+          <div style="font-size:28px;font-weight:bold;color:#0d6efd">${s.total_scans || 0}</div>
+          <small class="text-muted">Total Scans</small>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card text-center p-3 border-danger">
+          <div style="font-size:28px;font-weight:bold;color:#dc3545">${s.total_threats || 0}</div>
+          <small class="text-muted">Threats Detected</small>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card text-center p-3 border-dark">
+          <div style="font-size:28px;font-weight:bold;color:#212529">${s.total_blocked || 0}</div>
+          <small class="text-muted">🛡 QRs Blocked</small>
+        </div>
+      </div>
+      <div class="col-12 mt-2">
+        <small class="text-muted"><b>Threats by Type:</b> ${typeBreakdown}</small>
+        &nbsp;|&nbsp;
+        <small class="text-muted"><b>Unique QRs:</b> ${s.unique_qrs_scanned || 0}</small>
+        &nbsp;|&nbsp;
+        <small class="text-muted"><b>Safe:</b> ${s.total_safe || 0}</small>
+      </div>
+    `;
+  } catch {
+    document.getElementById("threatStatsArea").innerHTML = '<p class="text-danger">Could not load threat stats</p>';
+  }
+}
+
+loadHistory();
+loadThreatStats();
+</script>
+</body>
+</html>

@@ -1,3 +1,7 @@
+## SafeScan-Pro Showcase
+
+![SafeScan-Pro Dashboard, Mobile App, Reports and Architecture](images/safescan-showcase.png)
+
 <div align="center">
 
 <img src="Documentation/Malware Qr.png" width="80" height="80" alt="SafeScan Pro Logo"/>
